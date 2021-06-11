@@ -54,7 +54,16 @@ def greedy_choose(head, board):
     return random.randint(0,3)
 """
 
-class state:
+def playout(state):
+    #報酬値を管理する -> 一番ネック
+    return playout(state.next(randomActions(state)))
+
+def randomActions(state):
+    #すべてのエージェントの合法手をランダムで選択する
+    return 1
+
+
+class State:
     def __init__(self, obs):
         #foodの管理
         self.foods = obs.food
@@ -80,8 +89,6 @@ class state:
                 self.enemies.append(enemy)
                 
     def checkSegment(self):#step40ごとにsegmentを1削除
-        return 0
-    def randPopFood(self):
         return 0
     def deleteGeese(self): #geese削除を管理
         return 0
@@ -110,7 +117,7 @@ def agent(obs, conf):
     
     obs = Observation(obs)
     conf = Configuration(conf)
-    
+    state = State(obs)
             
                 
     """
