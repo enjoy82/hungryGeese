@@ -81,6 +81,8 @@ class state:
                 
     def checkSegment(self):#step40ごとにsegmentを1削除
         return 0
+    def randPopFood(self):
+        return 0
     def deleteGeese(self): #geese削除を管理
         return 0
     def next(self, action): #TODO これ大丈夫か？actionは４手一緒に行う
