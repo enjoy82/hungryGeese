@@ -3,8 +3,7 @@
 from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import random
 import numpy as np
-from collections import defaultdict
-import queue
+from collections import defaultdict, deque
 
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
 
@@ -62,54 +61,94 @@ def randomActions(state):
     #すべてのエージェントの合法手をランダムで選択する
     return 1
 
+#######################　hyper params  ############################
+direct = ["EAST", "WEST", "SOUTH", "NORTH"]
+dx = [1, 0, -1, 0]
+dy = [0, 1, 0, -1]
+READSTEPS = 8
+###################################################################
+
+def get1vec(x, y):
+    return x + y * 11
+
+def get2vec(s):
+    return s % 11, s // 11
+
+def nextPos(s): #4方向の配列を返す,方角も 0 <= x <= 10 0 <= y <= 6
+    lis = []
+    x, y = get2vec(s)
+    for d, xx, yy in zip(direct, dx, dy):
+        npos = get1vec((x+xx+11)% 11, (y+yy+7)%7)
+        lis.append({"pos":npos, "direct":d})
+    return lis
+
 
 class State:
     def __init__(self, obs):
         #foodの管理
         self.foods = obs.food
-        self.step = obs.food
+        self.step = obs.step
         self.index = obs.index
+        self.deletion = [False, False, False, False]
         #当たり判定
         self.bodyDict = defaultdict(int)
-        #geeseの管理、高速化のためqueue
-        self.enemies = []  
-        for ind, geese in enumerate(obs.geese):
-            geese.reverse()
-            if ind == self.index:
-                mygeese = queue.Queue()
-                for s in geese:
-                    self.bodyDict[s] = 1
-                    mygeese.put(s)
-                self.myGeese = mygeese
-            else:
-                enemy = queue.Queue()
-                for s in geese:
-                    self.bodyDict[s] = 1
-                    enemy.put(s)
-                self.enemies.append(enemy)
+        #geeseの管理、高速化のためdeque top head
+        self.geeses = []
+        for _, geese in enumerate(obs.geese):
+            deq = deque()
+            for s in geese:
+                self.bodyDict[s] = 1
+                deq.append(s)
+            self.geeses.append(deq)
                 
     def checkSegment(self):#step40ごとにsegmentを1削除
-        return 0
-    def deleteGeese(self): #geese削除を管理
+        if self.step % 40 == 0:
+            for geese in self.geeses:
+                geese.pop()
+        return
+    def checkDeleteGeese(self): #geese削除を管理
+        for ind, geese in enumerate(self.geeses):
+            if self.deletion == True:
+                continue
+            else:
+                geeseHead = geese[0]
+                if self.bodyDict[geeseHead] >= 2:
+                    self.deletion[ind] = True
+                    for _ in range(len(geese)): #盤面削除
+                        self.bodyDict[geese.pop()] -= 1
+
         return 0
     def next(self, action): #TODO これ大丈夫か？actionは４手一緒に行う
         return 0
-    def legalActions(self): #合法手(動けるアクション)を選択
+    def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
+        geeseHead = self.geeses[0]
+        nextP = nextPos(geeseHead)
+        nextLegalActions = []
+        for p in nextP:
+            np = p["pos"]
+            if self.bodyDict[np] == 0: #TODO 本当はしっぽいきたい
+                nextLegalActions.append(p)
+        return nextLegalActions
+    def isDone(self):
         return 0
-    def isDone(self): #ゲーム終了かどうか
-        #TODO終了条件について考える必要あり、foodの条件によって勝ち筋が異なる
-        return 0
-    def isWin(self): #勝利管理
+    def getReward(self): #勝利管理
         return 0
     def isLose(self): #敗北
-        return 0
+        if self.deletion[self.index] == True:
+            return True
+        return False
 
 def mcts_action(state):
     class Node:
         def __init__(self, state):
             self.value = 0
             self.w = 0
-            
+        def evaluate():
+            return 0
+        def expand():
+            return 0
+        def next_child_node():
+            return 0
             
     
 def agent(obs, conf):
