@@ -282,3 +282,7 @@ def agent(obs, conf):
     print(k)
     """
     return directions[k]
+
+if __name__ == '__main__':
+    obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
+    mcts_action(obs)
