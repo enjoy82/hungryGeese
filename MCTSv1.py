@@ -5,8 +5,10 @@ import random
 import numpy as np
 from collections import defaultdict, deque
 import copy
+import math
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
 
+#TODO DUCTに変更？
 """
 def move(loc, direction):
     global directions
@@ -61,6 +63,8 @@ dx = [0, 0, -1, 1]
 dy = [1, -1, 0, 0]
 READSTEPS = 8
 NOACTION = "NOACTION"
+EXPANDCOUNT = 1000 #ノード展開の数
+SIMULATECOUNT = 10000 #シミュレーション数
 ###################################################################
 
 def get1vec(x, y):
@@ -71,7 +75,7 @@ def get2vec(s):
     return s // 11, s % 11
 
 
-def playout(state): #TODO　これだと同時着手ゲームに対応できない。自分の手の報酬を管理したい
+def playout(state): #TODO　DUCT
     if state.isLose():
         return -1
     if state.getReward() != -1:
@@ -80,7 +84,7 @@ def playout(state): #TODO　これだと同時着手ゲームに対応できな�
     #get randomaction
     for ind in range(4):
         actionlist.append(state.randomAction(ind))
-    return playout(state.next(actionlist))
+    return -playout(state.next(actionlist))
 
 class State:
     def __init__(self, obs):
@@ -104,24 +108,24 @@ class State:
                 
     def checkSegment(self):#step40ごとにsegmentを1削除
         if self.step % 40 == 0:
-            for ind, geese in enumerate(self.geeses):
+            for ind in len(self.geeses):
                 if self.deletion[ind] == True:
                     continue
-                geese.pop()
+                self.geeses[ind].pop()
         return
     def checkDeleteGeese(self): #geese削除を管理
-        for ind, geese in enumerate(self.geeses):
+        for ind in len(self.geeses):
             if self.deletion[ind] == True:
                 continue
-            if len(geese) == 0:
+            if len(self.geeses[ind]) == 0:
                 self.deletion[ind] = True
                 continue
             else:
-                geeseHeadx, geeseHeady = geese[0]
+                geeseHeadx, geeseHeady = self.geeses[ind][0]
                 if self.board[geeseHeadx][geeseHeady] >= 2: #重複削除
                     self.deletion[ind] = True
-                    for _ in range(len(geese)): #盤面削除
-                        x, y = geese.pop()
+                    for _ in range(len(self.geeses[ind])): #盤面削除
+                        x, y = self.geeses[ind].pop()
                         self.board[x][y] -= 1
 
         return
@@ -135,6 +139,8 @@ class State:
             #TODO write this func!! 頭に入れる！！ けつをカット！！
         self.checkSegment()
         self.checkDeleteGeese()
+        #count増やす
+        self.count += 1
         return 0
 
     def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
@@ -177,23 +183,71 @@ class State:
         if self.deletion[self.index] == True:
             return True
         return False
+    
+    def isDone(self): #終了->価値, else-> -2
+        if (self.isLose() == False) or (self.getReward() == -1):
+            return -2
+        if self.isLose() == True:
+            return -1
+        return self.getReward()
+
 
 def mcts_action(state):
     class Node:
         def __init__(self, state):
             self.state = state
-            self.value = 0
+            self.n = 0
             self.w = 0
             self.child_nodes = None
-        def evaluate():
-            return 0
-        def expand():
-            return 0
-        def next_child_node():
-            return 0
-    
+        def evaluate(self):
+            value = self.state.isDone()
+            #ゲーム終了
+            if value != -2:
+                self.w += value
+                self.n += 1
+                return value
+            if not self.child_nodes:
+                #TODO DUCT
+                value = playout(self.state)
+                self.w += value
+                self.n += 1
+                if self.n == EXPANDCOUNT:
+                    self.expand()
+                return value
+            else:
+                value = -self.next_child_node().evaluate()
+
+                self.w += value
+                self.n += 1
+                return value
+        def expand(self):
+            legal_actions = self.state.legalActions()
+            self.child_nodes = []
+            for action in legal_actions:
+                self.child_nodes.append(Node(self.state.next(action)))
+        def next_child_node(self): #TODO change to DUCT!!
+            for child_node in self.child_nodes:
+                if child_node.n == 0:
+                    return child_node
+            t = 0
+            for c in self.child_nodes:
+                t += c.n
+            ucb1_values = []
+            for child_node in self.child_nodes:
+                ucb1_values.append(-child_node.w / child_node.n + (2*math.log(t)/child_node.n)**0.5)
+            return self.child_nodes[np.argmax(ucb1_values)]
     root_node = Node(state)
     root_node.expand()
+
+    for _ in range(SIMULATECOUNT):
+        root_node.evaluate()
+    
+    #試行回数が最大のものを選ぶ
+    legal_actions = state.legalActions()
+    n_list = []
+    for c in root_node.child_nodes:
+        n_list.append(c.n)
+    return legal_actions[np.argmax(n_list)]
             
     
 def agent(obs, conf):
