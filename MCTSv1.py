@@ -63,8 +63,8 @@ dx = [0, 0, -1, 1]
 dy = [1, -1, 0, 0]
 READSTEPS = 8
 NOACTION = "NOACTION"
-EXPANDCOUNT = 1000 #ノード展開の数
-SIMULATECOUNT = 10000 #シミュレーション数
+EXPANDCOUNT = 10 #ノード展開の数
+SIMULATECOUNT = 10 #シミュレーション数
 ###################################################################
 
 def displayBoard(board):
@@ -78,6 +78,9 @@ def get1vec(x, y):
 def get2vec(s):
     #return x, y
     return s // 11, s % 11
+
+def getLegalPos(x,y):
+    return x % 7, y % 11
 
 
 def playout(state): #TODO　DUCT
@@ -111,29 +114,41 @@ class State:
                 self.board[x][y] = 1
                 deq.append((x,y))
             self.geeses.append(deq)
+
         displayBoard(self.board)
+        for i in range(len(self.geeses)):
+            print(len(self.geeses[i]))
+            
     def checkSegment(self):#step40ごとにsegmentを1削除
-        if self.step % 40 == 0:
-            for ind in len(self.geeses):
+        if self.step != 0 and self.step % 40 == 0:
+            for ind in range(len(self.geeses)):
                 if self.deletion[ind] == True:
                     continue
                 self.geeses[ind].pop()
         return
     def checkDeleteGeese(self): #geese削除を管理
-        for ind in len(self.geeses):
+        headcheckflag = [False, False, False, False]
+        for ind in range(len(self.geeses)):
             if self.deletion[ind] == True:
                 continue
             if len(self.geeses[ind]) == 0:
                 self.deletion[ind] = True
                 continue
             else:
+                headcheckflag[ind] = True
+        #盤面削除
+        deletecheckflag = [False, False, False, False]
+        for ind, headflag in enumerate(headcheckflag):
+            if headflag == True:
                 geeseHeadx, geeseHeady = self.geeses[ind][0]
-                if self.board[geeseHeadx][geeseHeady] >= 2: #重複削除
-                    self.deletion[ind] = True
-                    for _ in range(len(self.geeses[ind])): #盤面削除
-                        x, y = self.geeses[ind].pop()
-                        self.board[x][y] -= 1
-
+                if self.board[geeseHeadx][geeseHeady] >= 2: #重複確認
+                    deletecheckflag[ind] = True
+        for ind, deleteflag in enumerate(deletecheckflag):
+            if deleteflag == True:
+                self.deletion[ind] = True
+                for _ in range(len(self.geeses[ind])): #盤面削除を同時に行う
+                    x, y = self.geeses[ind].pop()
+                    self.board[x][y] -= 1
         return
         
     def next(self, actions): #TODO これ大丈夫か？actionは４手一緒に行う 次の盤面を用意する。TODO #directで管理
@@ -153,11 +168,12 @@ class State:
     def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
         if self.deletion[ind] == True:
             return []
-        geeseHeadx, geeseHeady = self.geeses[0]
+        geeseHeadx, geeseHeady = self.geeses[ind][0]
         nextLegalActions = []
         for dir, xx, yy in zip(direct, dx, dy):
             nx = geeseHeadx + xx
             ny = geeseHeady + yy
+            nx, ny = getLegalPos(nx, ny)
             if self.board[nx][ny] != 1:
                 nextLegalActions.append(dir)
             else:
@@ -186,7 +202,8 @@ class State:
         else:
             return -1
 
-    def isLose(self, ind): #敗北管理
+    def isLose(self): #敗北管理
+        print(self.deletion)
         if self.deletion[self.index] == True:
             return True
         return False
@@ -207,12 +224,11 @@ def mcts_action(state):
             self.w = 0
             self.child_nodes = None
         def evaluate(self):
-            value = self.state.isDone()
-            #ゲーム終了
-            if value != -2:
-                self.w += value
+            #ゲーム終了 -> 広げる意味がない 打ち切り条件書く
+            if self.state.isLose() == True:
+                self.w += -1
                 self.n += 1
-                return value
+                return -1
             if not self.child_nodes:
                 #TODO DUCT
                 value = playout(self.state)
@@ -222,42 +238,73 @@ def mcts_action(state):
                     self.expand()
                 return value
             else:
-                value = -self.next_child_node().evaluate()
-
+                value = self.next_child_node().evaluate()
                 self.w += value
                 self.n += 1
                 return value
         
         def expand(self):
-            #TODO index
-            legal_actions = self.state.legalActions()
-            self.child_nodes = []
-            for action in legal_actions:
-                self.child_nodes.append(Node(self.state.next(action)))
-        def next_child_node(self): #TODO change to DUCT!!
-            for child_node in self.child_nodes:
-                if child_node.n == 0:
-                    return child_node
+            #DUCT 3**4 だけ展開する
+            legal_actions = []
+            for ind in range(4):
+                legal_action = self.state.legalActions(ind)
+                if len(legal_action) == 0:
+                    legal_action.append(NOACTION)
+                legal_actions.append(legal_action)
+
+            self.child_nodes = [[[[None for d in range(len(legal_actions[3]))] for c in range(len(legal_actions[2]))] for b in range(len(legal_actions[1]))] for a in range(len(legal_actions[0]))]
+            for ind1, legal_action1 in enumerate(legal_actions[0]):
+                for ind2, legal_action2 in enumerate(legal_actions[1]):
+                    for ind3, legal_action3 in enumerate(legal_actions[2]):
+                        for ind4, legal_action4 in enumerate(legal_actions[3]):
+                            actionlist = [legal_action1, legal_action2, legal_action3, legal_action4]
+                            self.child_nodes[ind1][ind2][ind3][ind4] = Node(self.state.next(actionlist))
+
+        def next_child_node(self): #ucb1使う
+            ucbTables = []
             t = 0
-            for c in self.child_nodes:
-                t += c.n
-            ucb1_values = []
-            for child_node in self.child_nodes:
-                ucb1_values.append(-child_node.w / child_node.n + (2*math.log(t)/child_node.n)**0.5)
-            return self.child_nodes[np.argmax(ucb1_values)]
+            actionSize = [len(self.child_nodes), len(self.child_nodes[0]), len(self.child_nodes[0][0]), len(self.child_nodes[0][0][0])]
+            for acs in actionSize:
+                ucbTable = [[0, 0] for i in range(acs)]
+                ucbTables.append(ucbTable)
+            for ind1 in range(actionSize[0]):
+                for ind2 in range(actionSize[1]):
+                    for ind3 in range(actionSize[2]):
+                        for ind4 in range(actionSize[3]):
+                            t += self.child_nodes[ind1][ind2][ind3][ind4].n
+                            if self.child_nodes[ind1][ind2][ind3][ind4].n == 0:
+                                return self.child_nodes[ind1][ind2][ind3][ind4]
+                            li = [ind1, ind2, ind3, ind4]
+                            cn = self.child_nodes[ind1][ind2][ind3][ind4].n
+                            cw = self.child_nodes[ind1][ind2][ind3][ind4].w
+                            for ind, ac in zip(range(4), li):
+                                ucbTables[ind][ac][0] += cn
+                                ucbTables[ind][ac][1] += cw
+            selectac = [0,0,0,0]
+            for ind in range(len(ucbTables)):
+                bestac = 0
+                bestucb = -1e9
+                for ac in range(len(ucbTables[ind])):
+                    sumn = ucbTables[ind][ac][0]
+                    sumw = ucbTables[ind][ac][1]
+                    ucb = sumw / sumn + (2*math.log(t)/sumn)**0.5
+                    if bestucb < ucb:
+                        bestucb = ucb
+                        bestac = ac
+                selectac[ind] = bestac
+            return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]]
     root_node = Node(state)
     root_node.expand()
 
     for _ in range(SIMULATECOUNT):
         root_node.evaluate()
-    
     #試行回数が最大のものを選ぶ
     legal_actions = state.legalActions()
     n_list = []
     for c in root_node.child_nodes:
         n_list.append(c.n)
     return legal_actions[np.argmax(n_list)]
-            
+
     
 def agent(obs, conf):
     global directions
@@ -274,3 +321,4 @@ def agent(obs, conf):
 if __name__ == '__main__':
     obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
     agent(obs, " ")
+    
