@@ -6,6 +6,7 @@ import numpy as np
 from collections import defaultdict, deque
 import copy
 import math
+import time
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
 
 #######################　hyper params  ############################
@@ -15,9 +16,11 @@ dx = [0, 0, -1, 1]
 dy = [1, -1, 0, 0]
 READSTEPS = 8
 NOACTION = "NOACTION"
-EXPANDCOUNT = 1 #ノード展開の数
-SIMULATECOUNT = 1 #シミュレーション数
+EXPANDCOUNT = 256 * 4 #ノード展開の数
+SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
+STARTTIME = time.time()
 ###################################################################
+
 
 def displayBoard(board):
     for row in board:
@@ -35,7 +38,7 @@ def getLegalPos(x,y):
     return x % 7, y % 11
 
 
-def playout(state): #TODO　DUCT
+def playout(state):
     reward = []
     if state.count == READSTEPS:
         for ind in range(4):
@@ -103,7 +106,7 @@ class State:
                     self.board[x][y] -= 1
         return
         
-    def next(self, actions): #TODO これ大丈夫か？actionは４手一緒に行う 次の盤面を用意する。TODO #directで管理
+    def next(self, actions):
         statecopy = copy.deepcopy(self)
         for ind in range(len(actions)):
             if statecopy.deletion[ind] == True:
@@ -115,8 +118,12 @@ class State:
             nextGeeseHeadx, nextGeeseHeady = getLegalPos(geeseHeadx + ddx, geeseHeady + ddy)
             statecopy.board[nextGeeseHeadx][nextGeeseHeady] += 1
             statecopy.geeses[ind].appendleft((nextGeeseHeadx, nextGeeseHeady))
-            nextGeeseTalex, nextGeeseTaley = statecopy.geeses[ind].pop()
-            statecopy.board[nextGeeseTalex][nextGeeseTaley] -= 1
+            headvec1 = get1vec(nextGeeseHeadx, nextGeeseHeady)
+            if headvec1 in statecopy.foods:
+                statecopy.foods.remove(headvec1)
+            else:
+                nextGeeseTalex, nextGeeseTaley = statecopy.geeses[ind].pop()
+                statecopy.board[nextGeeseTalex][nextGeeseTaley] -= 1
             #food書く！！
 
         statecopy.count += 1            
@@ -157,7 +164,10 @@ class State:
         
     def getReward(self, ind): #勝利管理 8手先読み
         if self.deletion[ind] == False:
-            return len(self.geeses[self.index]) #ひとまずTODO
+            maxGeeseLen = -1
+            for geese in self.geeses:
+                maxGeeseLen = max(maxGeeseLen, len(geese))
+            return len(self.geeses[self.index]) / maxGeeseLen #TODO 正規化する
         else:
             return -1
 
@@ -174,7 +184,6 @@ class State:
             return -1
         return self.getReward()
 
-#TODO rewardは配列で探索しなければならない()
 def mcts_action(state):
     class Node:
         def __init__(self, state):
@@ -259,8 +268,11 @@ def mcts_action(state):
             return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]]
     root_node = Node(state)
     root_node.expand()
-    for i in range(SIMULATECOUNT):
+    c = 0
+    while(time.time() - STARTTIME < 1.):
+        c += 1
         root_node.evaluate()
+    print(c)
     #試行回数が最大のものを選ぶ
     legal_actions = root_node.state.legalActions(root_node.state.index)
     actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
@@ -277,7 +289,6 @@ def mcts_action(state):
                         n_list[ind3] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
                     elif root_node.state.index == 3:
                         n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
-
     return legal_actions[np.argmax(n_list)]
 
     
@@ -290,6 +301,7 @@ def agent(obs, conf):
     state = State(obs)
     best_action = mcts_action(state)
     print(best_action)
+    print(time.time() - STARTTIME)
     return best_action 
 
 if __name__ == '__main__':
