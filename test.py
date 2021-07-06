@@ -1,2 +1,3 @@
-lis = [[0 for i in range(11)] for l in range(7)]
-print(lis[6][3])
+lis = [1,1,1,1]
+lis += [1,1,1,1]
+print(lis)

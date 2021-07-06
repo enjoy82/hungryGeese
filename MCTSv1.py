@@ -8,54 +8,6 @@ import copy
 import math
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
 
-#TODO DUCTに変更？
-"""
-def move(loc, direction):
-    global directions
-    direction = directions[direction]
-    new_loc = []
-    if direction == 'EAST':
-        new_loc.append(int(11*(loc[0]//11)  + (loc[0]%11 + 1)%11))
-    elif direction == 'WEST':
-        new_loc.append(int(11*(loc[0]//11) + (loc[0]%11 + 10)%11))
-    elif direction == 'NORTH':
-        new_loc.append(int(11*((loc[0]//11 + 6)%7) + loc[0]%11))
-    else:
-        new_loc.append(int(11*((loc[0]//11 + 1)%7) + loc[0]%11))
-    if len(loc) == 1:
-        return new_loc
-    print(new_loc + loc[:-1])
-    return new_loc + loc[:-1]
-    
-
-def greedy_choose(head, board):
-    move_queue = []
-    visited = [[[100, 'NA'] for _ in range(11)] for l in range(7)]
-    visited[head//11][head%11][0] = 0
-    
-    for i in range(4):
-        move_queue.append([head, [i]])
-    
-    while len(move_queue) > 0:
-        now_move = move_queue.pop(0)
-        
-        next_step = move([now_move[0]], now_move[1][-1])[0]
-        
-        if board[next_step//11][next_step%11] < 0:
-            continue
-        
-        if len(now_move[1]) < visited[next_step//11][next_step%11][0]:
-            visited[next_step//11][next_step%11][0] = len(now_move[1])
-            visited[next_step//11][next_step%11][1] = now_move[1][0]
-            for i in range(4):
-                move_queue.append([next_step, now_move[1] + [i]])
-        
-        if board[next_step//11][next_step%11] > 0:
-            return now_move[1][0]
-    return random.randint(0,3)
-"""
-
-
 #######################　hyper params  ############################
 directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (-1, 0), "NORTH" : (1, 0)}
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
@@ -63,8 +15,8 @@ dx = [0, 0, -1, 1]
 dy = [1, -1, 0, 0]
 READSTEPS = 8
 NOACTION = "NOACTION"
-EXPANDCOUNT = 10 #ノード展開の数
-SIMULATECOUNT = 10 #シミュレーション数
+EXPANDCOUNT = 1 #ノード展開の数
+SIMULATECOUNT = 1 #シミュレーション数
 ###################################################################
 
 def displayBoard(board):
@@ -116,15 +68,15 @@ class State:
             self.geeses.append(deq)
 
         displayBoard(self.board)
-        for i in range(len(self.geeses)):
-            print(len(self.geeses[i]))
             
     def checkSegment(self):#step40ごとにsegmentを1削除
-        if self.step != 0 and self.step % 40 == 0:
+        if self.step != 0 or (self.step + self.count) % 40 == 0:
             for ind in range(len(self.geeses)):
                 if self.deletion[ind] == True:
                     continue
-                self.geeses[ind].pop()
+                nextGeeseTalex, nextGeeseTaley = self.geeses[ind].pop()
+                self.board[nextGeeseTalex][nextGeeseTaley] -= 1
+
         return
     def checkDeleteGeese(self): #geese削除を管理
         headcheckflag = [False, False, False, False]
@@ -152,18 +104,25 @@ class State:
         return
         
     def next(self, actions): #TODO これ大丈夫か？actionは４手一緒に行う 次の盤面を用意する。TODO #directで管理
-        for ind, action in enumerate(actions):
-            if self.deletion[ind] == True:
+        statecopy = copy.deepcopy(self)
+        for ind in range(len(actions)):
+            if statecopy.deletion[ind] == True:
                 continue
-            if action == NOACTION:
-                action = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
-            #TODO write this func!! 頭に入れる！！ けつをカット！！
-            
-        self.checkSegment()
-        self.checkDeleteGeese()
-        #count増やす
-        self.count += 1
-        return 0
+            if actions[ind] == NOACTION:
+                actions[ind] = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
+            geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
+            ddx, ddy = directdict[actions[ind]]
+            nextGeeseHeadx, nextGeeseHeady = getLegalPos(geeseHeadx + ddx, geeseHeady + ddy)
+            statecopy.board[nextGeeseHeadx][nextGeeseHeady] += 1
+            statecopy.geeses[ind].appendleft((nextGeeseHeadx, nextGeeseHeady))
+            nextGeeseTalex, nextGeeseTaley = statecopy.geeses[ind].pop()
+            statecopy.board[nextGeeseTalex][nextGeeseTaley] -= 1
+            #food書く！！
+
+        statecopy.count += 1            
+        statecopy.checkSegment()
+        statecopy.checkDeleteGeese()
+        return statecopy
 
     def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
         if self.deletion[ind] == True:
@@ -203,7 +162,7 @@ class State:
             return -1
 
     def isLose(self): #敗北管理
-        print(self.deletion)
+        #print(self.deletion)
         if self.deletion[self.index] == True:
             return True
         return False
@@ -215,31 +174,34 @@ class State:
             return -1
         return self.getReward()
 
-
+#TODO rewardは配列で探索しなければならない()
 def mcts_action(state):
     class Node:
         def __init__(self, state):
             self.state = state
             self.n = 0
-            self.w = 0
+            self.w = [0 for _ in range(4)]
             self.child_nodes = None
         def evaluate(self):
-            #ゲーム終了 -> 広げる意味がない 打ち切り条件書く
+            #ゲーム終了 -> 広げる意味がない TODO 打ち切り条件書く
             if self.state.isLose() == True:
-                self.w += -1
+                value = []
+                for ind in range(4):
+                    value.append(self.getReward(self.state, ind))
                 self.n += 1
-                return -1
+                return value
             if not self.child_nodes:
-                #TODO DUCT
                 value = playout(self.state)
-                self.w += value
+                for ind, v in enumerate(value):
+                    self.w[ind] += v
                 self.n += 1
-                if self.n == EXPANDCOUNT:
+                if self.n >= EXPANDCOUNT:
                     self.expand()
                 return value
             else:
                 value = self.next_child_node().evaluate()
-                self.w += value
+                for ind, v in enumerate(value):
+                    self.w[ind] += v
                 self.n += 1
                 return value
         
@@ -275,9 +237,11 @@ def mcts_action(state):
                             if self.child_nodes[ind1][ind2][ind3][ind4].n == 0:
                                 return self.child_nodes[ind1][ind2][ind3][ind4]
                             li = [ind1, ind2, ind3, ind4]
+                            cwlist = []
                             cn = self.child_nodes[ind1][ind2][ind3][ind4].n
-                            cw = self.child_nodes[ind1][ind2][ind3][ind4].w
-                            for ind, ac in zip(range(4), li):
+                            for cw in self.child_nodes[ind1][ind2][ind3][ind4].w:
+                                cwlist.append(cw)
+                            for ind, ac, cw in zip(range(4), li, cwlist):
                                 ucbTables[ind][ac][0] += cn
                                 ucbTables[ind][ac][1] += cw
             selectac = [0,0,0,0]
@@ -295,14 +259,25 @@ def mcts_action(state):
             return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]]
     root_node = Node(state)
     root_node.expand()
-
-    for _ in range(SIMULATECOUNT):
+    for i in range(SIMULATECOUNT):
         root_node.evaluate()
     #試行回数が最大のものを選ぶ
-    legal_actions = state.legalActions()
-    n_list = []
-    for c in root_node.child_nodes:
-        n_list.append(c.n)
+    legal_actions = root_node.state.legalActions(root_node.state.index)
+    actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
+    n_list = [0 for _ in range(len(legal_actions))]
+    for ind1 in range(actionSize[0]):
+        for ind2 in range(actionSize[1]):
+            for ind3 in range(actionSize[2]):
+                for ind4 in range(actionSize[3]):
+                    if root_node.state.index == 0:
+                        n_list[ind1] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+                    elif root_node.state.index == 1:
+                        n_list[ind2] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+                    elif root_node.state.index == 2:
+                        n_list[ind3] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+                    elif root_node.state.index == 3:
+                        n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+
     return legal_actions[np.argmax(n_list)]
 
     
@@ -313,12 +288,10 @@ def agent(obs, conf):
     #obs = Observation(obs)
     #conf = Configuration(conf)
     state = State(obs)
-
-    #TODO よくわからん    
-    k = mcts_action(state)  
-    return directions[k]
+    best_action = mcts_action(state)
+    print(best_action)
+    return best_action 
 
 if __name__ == '__main__':
     obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
     agent(obs, " ")
-    
