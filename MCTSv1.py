@@ -1,6 +1,6 @@
-%%writefile submission.py
+#%%writefile submission.py
 
-from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
+#from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import random
 import numpy as np
 from collections import defaultdict, deque
@@ -67,6 +67,11 @@ EXPANDCOUNT = 1000 #ノード展開の数
 SIMULATECOUNT = 10000 #シミュレーション数
 ###################################################################
 
+def displayBoard(board):
+    for row in board:
+        print(row)
+    return
+
 def get1vec(x, y):
     return x * 11 + y
 
@@ -76,36 +81,37 @@ def get2vec(s):
 
 
 def playout(state): #TODO　DUCT
-    if state.isLose():
-        return -1
-    if state.getReward() != -1:
-        return 0
+    reward = []
+    if state.count == READSTEPS:
+        for ind in range(4):
+            reward.append(state.getReward(ind))
+        return reward
     actionlist = []
     #get randomaction
     for ind in range(4):
         actionlist.append(state.randomAction(ind))
-    return -playout(state.next(actionlist))
+    return playout(state.next(actionlist))
 
 class State:
     def __init__(self, obs):
         #foodの管理
-        self.foods = obs.food
-        self.step = obs.step
+        self.foods = obs["food"]
+        self.step = obs["step"]
         self.count = 0
-        self.index = obs.index #自分のgeeseのindex
+        self.index = obs["index"] #自分のgeeseのindex
         self.deletion = [False, False, False, False]
         #当たり判定　配列で
         self.board = [[0 for i in range(11)] for l in range(7)]
         #geeseの管理、高速化のためdeque top head
         self.geeses = []
-        for _, geese in enumerate(obs.geese):
+        for _, geese in enumerate(obs["geese"]):
             deq = deque()
             for s in geese:
                 x, y = get2vec(s)
                 self.board[x][y] = 1
                 deq.append((x,y))
             self.geeses.append(deq)
-                
+        displayBoard(self.board)
     def checkSegment(self):#step40ごとにsegmentを1削除
         if self.step % 40 == 0:
             for ind in len(self.geeses):
@@ -137,6 +143,7 @@ class State:
             if action == NOACTION:
                 action = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
             #TODO write this func!! 頭に入れる！！ けつをカット！！
+            
         self.checkSegment()
         self.checkDeleteGeese()
         #count増やす
@@ -169,22 +176,22 @@ class State:
             return NOACTION
         return nextLegalActions[np.random.randint(0, len(nextLegalActions))]
 
+    #TODO たぶんいらん
     def isDraw(self):
         return 0
         
-    def getReward(self): #勝利管理 8手先読み
-        if self.count == READSTEPS:
-            if self.deletion[self.index] == False:
-                return len(self.geeses[self.index]) #ひとまずTODO
+    def getReward(self, ind): #勝利管理 8手先読み
+        if self.deletion[ind] == False:
+            return len(self.geeses[self.index]) #ひとまずTODO
         else:
             return -1
 
-    def isLose(self): #敗北管理
+    def isLose(self, ind): #敗北管理
         if self.deletion[self.index] == True:
             return True
         return False
     
-    def isDone(self): #終了->価値, else-> -2
+    def isDone(self, ind): #終了->価値, else-> -2
         if (self.isLose() == False) or (self.getReward() == -1):
             return -2
         if self.isLose() == True:
@@ -220,7 +227,9 @@ def mcts_action(state):
                 self.w += value
                 self.n += 1
                 return value
+        
         def expand(self):
+            #TODO index
             legal_actions = self.state.legalActions()
             self.child_nodes = []
             for action in legal_actions:
@@ -253,36 +262,15 @@ def mcts_action(state):
 def agent(obs, conf):
     global directions
     
-    obs = Observation(obs)
-    conf = Configuration(conf)
+    #TODO delete
+    #obs = Observation(obs)
+    #conf = Configuration(conf)
     state = State(obs)
-            
-                
-    """
-    board = np.zeros((7, 11), dtype=int)
-    print(obs)
-    #Obstacle-ize your opponents
-    for ind, goose in enumerate(obs.geese):
-        if ind == obs.index or len(goose) == 0:
-            continue
-        for direction in range(4):
-            moved = move(goose, direction)
-            for part in moved:
-                board[part//11][part%11] -= 1
-    
-    #Obstacle-ize your body, except the last part
-    if len(obs.geese[obs.index]) > 1:
-        for k in obs.geese[obs.index][:-1]:
-            board[k//11][k%11] -= 1
-    
-    #Count food only if there's no chance an opponent will meet you there
-    for f in obs.food: 
-        board[f//11][f%11] += (board[f//11][f%11] == 0)
-    k = greedy_choose(obs.geese[obs.index][0], board)
-    print(k)
-    """
+
+    #TODO よくわからん    
+    k = mcts_action(state)  
     return directions[k]
 
 if __name__ == '__main__':
     obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
-    mcts_action(obs)
+    agent(obs, " ")
