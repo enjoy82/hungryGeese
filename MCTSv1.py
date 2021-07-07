@@ -215,7 +215,7 @@ def mcts_action(state):
             if self.state.isLose() == True:
                 value = []
                 for ind in range(4):
-                    value.append(self.state.getReward(self.state, ind))
+                    value.append(self.state.getReward(ind))
                 self.n += 1
                 return value
             if not self.child_nodes:
@@ -312,11 +312,14 @@ def mcts_action(state):
 
 def reloadPreActions(obs):
     geeses = obs["geese"]
+    global Globalpreactions
+    global Globalpregeesehead
     for ind, geese in enumerate(geeses):
         if len(geese) == 0:
             continue
         nowgeeseheadx, nowgeeseheady = get2vec(geese[0])
         pregeeseheadx, pregeeseheady = Globalpregeesehead[ind]
+        Globalpregeesehead[ind] = (nowgeeseheadx, nowgeeseheady)
         if pregeeseheadx == -1 and pregeeseheady == -1:
             continue
         for dir, ddx, ddy in zip(direct, dx, dy):
@@ -324,7 +327,6 @@ def reloadPreActions(obs):
             if nowgeeseheadx == nx and nowgeeseheady == ny:
                 Globalpreactions[ind] = dir
                 break
-        Globalpregeesehead[ind] = (nowgeeseheadx, nowgeeseheady)
 
 def agent(obs, conf):
     global directions
@@ -333,6 +335,7 @@ def agent(obs, conf):
     #obs = Observation(obs)
     #conf = Configuration(conf)
     reloadPreActions(obs)
+    print(Globalpregeesehead)
     state = State(obs)
     best_action = mcts_action(state)
     print(best_action)
