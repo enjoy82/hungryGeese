@@ -1,26 +1,31 @@
-#%%writefile submission.py
+#%%writefile submissionMCTS.py
 
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import random
 import numpy as np
 from collections import defaultdict, deque
-import copy
 import math
 import time
+import copy
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
+try:
+    import cPickle as pickle
+except:
+    import pickle
 
 #######################　hyper params  ############################
-directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (-1, 0), "NORTH" : (1, 0)}
+directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1, 0)}
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
-dx = [0, 0, -1, 1]
+dx = [0, 0, 1, -1]
 dy = [1, -1, 0, 0]
-READSTEPS = 8
+READSTEPS = 4
 NOACTION = "NOACTION"
-EXPANDCOUNT = 256 * 4 #ノード展開の数
-SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
+EXPANDCOUNT = 5 #ノード展開の数
+#SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
 STARTTIME = time.time()
 ###################################################################
-
+Globalpreactions = [NOACTION, NOACTION, NOACTION, NOACTION]
+Globalpregeesehead = [(-1, -1), (-1, -1), (-1, -1), (-1, -1)]
 
 def displayBoard(board):
     for row in board:
@@ -35,8 +40,18 @@ def get2vec(s):
     return s // 11, s % 11
 
 def getLegalPos(x,y):
-    return x % 7, y % 11
+    return (x + 7) % 7, (y + 11) % 11
 
+def oppositeAction(s):
+    if s == "EAST":
+        return "WEST"
+    elif s == "WEST":
+        return "EAST"
+    elif s == "SOUTH":
+        return "NORTH"
+    elif s == "NORTH":
+        return "SOUTH"
+    return s
 
 def playout(state):
     reward = []
@@ -62,15 +77,17 @@ class State:
         self.board = [[0 for i in range(11)] for l in range(7)]
         #geeseの管理、高速化のためdeque top head
         self.geeses = []
-        for _, geese in enumerate(obs["geese"]):
+        for ind, geese in enumerate(obs["geese"]):
             deq = deque()
+            if len(geese) == 0:
+                self.deletion[ind] = True
             for s in geese:
                 x, y = get2vec(s)
                 self.board[x][y] = 1
                 deq.append((x,y))
             self.geeses.append(deq)
-
-        displayBoard(self.board)
+        self.preaction = copy.deepcopy(Globalpreactions)
+        #displayBoard(self.board)
             
     def checkSegment(self):#step40ごとにsegmentを1削除
         if self.step != 0 or (self.step + self.count) % 40 == 0:
@@ -115,6 +132,7 @@ class State:
                 actions[ind] = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
             geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
             ddx, ddy = directdict[actions[ind]]
+            statecopy.preaction[ind] = actions[ind]
             nextGeeseHeadx, nextGeeseHeady = getLegalPos(geeseHeadx + ddx, geeseHeady + ddy)
             statecopy.board[nextGeeseHeadx][nextGeeseHeady] += 1
             statecopy.geeses[ind].appendleft((nextGeeseHeadx, nextGeeseHeady))
@@ -124,7 +142,6 @@ class State:
             else:
                 nextGeeseTalex, nextGeeseTaley = statecopy.geeses[ind].pop()
                 statecopy.board[nextGeeseTalex][nextGeeseTaley] -= 1
-            #food書く！！
 
         statecopy.count += 1            
         statecopy.checkSegment()
@@ -132,22 +149,24 @@ class State:
         return statecopy
 
     def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
+        #delete oposite action
         if self.deletion[ind] == True:
             return []
         geeseHeadx, geeseHeady = self.geeses[ind][0]
+        forbidaction = oppositeAction(self.preaction[ind])
         nextLegalActions = []
         for dir, xx, yy in zip(direct, dx, dy):
             nx = geeseHeadx + xx
             ny = geeseHeady + yy
             nx, ny = getLegalPos(nx, ny)
-            if self.board[nx][ny] != 1:
+            if self.board[nx][ny] != 1 and dir != forbidaction:
                 nextLegalActions.append(dir)
             else:
                 for ind, geese in enumerate(self.geeses): #しっぽは最強手
                     if self.deletion[ind] == True:
                         continue
                     geeseBackx, geeseBacky = geese[-1]
-                    if nx == geeseBackx and ny == geeseBacky:
+                    if nx == geeseBackx and ny == geeseBacky and dir != forbidaction:
                         nextLegalActions.append(dir)
                         break
         return nextLegalActions
@@ -196,7 +215,7 @@ def mcts_action(state):
             if self.state.isLose() == True:
                 value = []
                 for ind in range(4):
-                    value.append(self.getReward(self.state, ind))
+                    value.append(self.state.getReward(self.state, ind))
                 self.n += 1
                 return value
             if not self.child_nodes:
@@ -222,7 +241,7 @@ def mcts_action(state):
                 if len(legal_action) == 0:
                     legal_action.append(NOACTION)
                 legal_actions.append(legal_action)
-
+            #print(legal_actions)
             self.child_nodes = [[[[None for d in range(len(legal_actions[3]))] for c in range(len(legal_actions[2]))] for b in range(len(legal_actions[1]))] for a in range(len(legal_actions[0]))]
             for ind1, legal_action1 in enumerate(legal_actions[0]):
                 for ind2, legal_action2 in enumerate(legal_actions[1]):
@@ -269,7 +288,7 @@ def mcts_action(state):
     root_node = Node(state)
     root_node.expand()
     c = 0
-    while(time.time() - STARTTIME < 1.):
+    while(time.time() - STARTTIME < 0.95):
         c += 1
         root_node.evaluate()
     print(c)
@@ -291,17 +310,33 @@ def mcts_action(state):
                         n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
     return legal_actions[np.argmax(n_list)]
 
-    
+def reloadPreActions(obs):
+    geeses = obs["geese"]
+    for ind, geese in enumerate(geeses):
+        if len(geese) == 0:
+            continue
+        nowgeeseheadx, nowgeeseheady = get2vec(geese[0])
+        pregeeseheadx, pregeeseheady = Globalpregeesehead[ind]
+        if pregeeseheadx == -1 and pregeeseheady == -1:
+            continue
+        for dir, ddx, ddy in zip(direct, dx, dy):
+            nx, ny = getLegalPos(pregeeseheadx + ddx, pregeeseheady + ddy)
+            if nowgeeseheadx == nx and nowgeeseheady == ny:
+                Globalpreactions[ind] = dir
+                break
+        Globalpregeesehead[ind] = (nowgeeseheadx, nowgeeseheady)
+
 def agent(obs, conf):
     global directions
     
     #TODO delete
     #obs = Observation(obs)
     #conf = Configuration(conf)
+    reloadPreActions(obs)
     state = State(obs)
     best_action = mcts_action(state)
     print(best_action)
-    print(time.time() - STARTTIME)
+    #print(time.time() - STARTTIME)
     return best_action 
 
 if __name__ == '__main__':
