@@ -2,6 +2,7 @@
 
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import random
+import queue
 import numpy as np
 from collections import defaultdict, deque
 import math
@@ -18,7 +19,7 @@ directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
 dx = [0, 0, 1, -1]
 dy = [1, -1, 0, 0]
-READSTEPS = 4
+READSTEPS = 5 #先読み手数
 NOACTION = "NOACTION"
 EXPANDCOUNT = 5 #ノード展開の数
 #SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
@@ -26,7 +27,7 @@ STARTTIME = time.time()
 ###################################################################
 Globalpreactions = [NOACTION, NOACTION, NOACTION, NOACTION]
 Globalpregeesehead = [(-1, -1), (-1, -1), (-1, -1), (-1, -1)]
-
+copycount = 0
 def displayBoard(board):
     for row in board:
         print(row)
@@ -63,7 +64,7 @@ def playout(state):
     #get randomaction
     for ind in range(4):
         actionlist.append(state.randomAction(ind))
-    return playout(state.next(actionlist))
+    return playout(state.next(actionlist, fromPlayout = True))
 
 class State:
     def __init__(self, obs):
@@ -88,7 +89,7 @@ class State:
             self.geeses.append(deq)
         self.preaction = copy.deepcopy(Globalpreactions)
         #displayBoard(self.board)
-            
+        self.copyflag = 1 #cooyflag 高速化
     def checkSegment(self):#step40ごとにsegmentを1削除
         if self.step != 0 or (self.step + self.count) % 40 == 0:
             for ind in range(len(self.geeses)):
@@ -123,8 +124,15 @@ class State:
                     self.board[x][y] -= 1
         return
         
-    def next(self, actions):
-        statecopy = copy.deepcopy(self)
+    def next(self, actions, fromPlayout = False):
+        global copycount
+        if self.copyflag == 1:
+            statecopy = copy.deepcopy(self)
+            copycount += 1
+            if fromPlayout == True:
+                statecopy.copyflag = 0
+        else:
+            statecopy = self
         for ind in range(len(actions)):
             if statecopy.deletion[ind] == True:
                 continue
@@ -148,8 +156,9 @@ class State:
         statecopy.checkDeleteGeese()
         return statecopy
 
+
+
     def legalActions(self, ind): #indで指定した合法手(動けるアクション)を取得(もちろん生きているもののみ)
-        #高速で枝を刈りたい あと報酬関数も
         #delete oposite action
         if self.deletion[ind] == True:
             return []
@@ -208,9 +217,18 @@ def mcts_action(state):
     class Node:
         def __init__(self, state):
             self.state = state
-            self.n = 0
-            self.w = [0 for _ in range(4)]
             self.child_nodes = None
+            #0除算を避けるために入れる、nodeとactionを入れる
+            self.next0node = queue.Queue()
+            #選ばれた数
+            self.n = 0
+
+        def updateUcbtables(self, values, actionList):
+            for ind, value, action in zip(range(4), values, actionList):
+                self.ucbTables[ind][action][0] += 1 #n
+                self.ucbTables[ind][action][1] += value # w
+            self.t += 1
+
         def evaluate(self):
             #ゲーム終了 -> 広げる意味がない TODO 打ち切り条件書く
             if self.state.isLose() == True:
@@ -221,16 +239,22 @@ def mcts_action(state):
                 return value
             if not self.child_nodes:
                 value = playout(self.state)
+                """
                 for ind, v in enumerate(value):
                     self.w[ind] += v
+                """
                 self.n += 1
                 if self.n >= EXPANDCOUNT:
                     self.expand()
                 return value
             else:
-                value = self.next_child_node().evaluate()
+                next_node, actionList = self.next_child_node()
+                value = next_node.evaluate()
+                self.updateUcbtables(value, actionList)
+                """
                 for ind, v in enumerate(value):
                     self.w[ind] += v
+                """
                 self.n += 1
                 return value
         
@@ -249,58 +273,54 @@ def mcts_action(state):
                     for ind3, legal_action3 in enumerate(legal_actions[2]):
                         for ind4, legal_action4 in enumerate(legal_actions[3]):
                             actionlist = [legal_action1, legal_action2, legal_action3, legal_action4]
-                            self.child_nodes[ind1][ind2][ind3][ind4] = Node(self.state.next(actionlist))
+                            newnode = Node(self.state.next(actionlist))
+                            self.child_nodes[ind1][ind2][ind3][ind4] = newnode
+                            self.next0node.put((newnode, [ind1, ind2, ind3, ind4]))
 
-        def next_child_node(self): #ucb1使う
-            ucbTables = []
-            t = 0
+            #展開したときにucbtableも定義する
+            self.ucbTables = []
+            self.t = 0
             actionSize = [len(self.child_nodes), len(self.child_nodes[0]), len(self.child_nodes[0][0]), len(self.child_nodes[0][0][0])]
             for acs in actionSize:
-                ucbTable = [[0, 0] for i in range(acs)]
-                ucbTables.append(ucbTable)
-            for ind1 in range(actionSize[0]):
-                for ind2 in range(actionSize[1]):
-                    for ind3 in range(actionSize[2]):
-                        for ind4 in range(actionSize[3]):
-                            t += self.child_nodes[ind1][ind2][ind3][ind4].n
-                            if self.child_nodes[ind1][ind2][ind3][ind4].n == 0:
-                                return self.child_nodes[ind1][ind2][ind3][ind4]
-                            li = [ind1, ind2, ind3, ind4]
-                            cwlist = []
-                            cn = self.child_nodes[ind1][ind2][ind3][ind4].n
-                            for cw in self.child_nodes[ind1][ind2][ind3][ind4].w:
-                                cwlist.append(cw)
-                            for ind, ac, cw in zip(range(4), li, cwlist):
-                                ucbTables[ind][ac][0] += cn
-                                ucbTables[ind][ac][1] += cw
+                ucbTable = [[0, 0] for _ in range(acs)]
+                self.ucbTables.append(ucbTable)
+
+        def next_child_node(self): #ucb1使う actionも返す
+            if not self.next0node.empty():
+                newnode, actionlist = self.next0node.get()
+                return newnode, actionlist
             selectac = [0,0,0,0]
-            for ind in range(len(ucbTables)):
+            for ind in range(len(self.ucbTables)):
                 bestac = 0
                 bestucb = -1e9
-                for ac in range(len(ucbTables[ind])):
-                    sumn = ucbTables[ind][ac][0]
-                    sumw = ucbTables[ind][ac][1]
-                    ucb = sumw / sumn + (2*math.log(t)/sumn)**0.5
+                for ac in range(len(self.ucbTables[ind])):
+                    sumn = self.ucbTables[ind][ac][0]
+                    sumw = self.ucbTables[ind][ac][1]
+                    ucb = sumw / sumn + (2*math.log(self.t)/sumn)**0.5
                     if bestucb < ucb:
                         bestucb = ucb
                         bestac = ac
                 selectac[ind] = bestac
-            return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]]
+            return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]], selectac
     root_node = Node(state)
     root_node.expand()
     c = 0
     while(time.time() - STARTTIME < 0.95):
         c += 1
         root_node.evaluate()
-    print(c)
+    global copycount
+    print("selectionnum : ", c)
+    print("copycount : ", copycount)
     #試行回数が最大のものを選ぶ
     legal_actions = root_node.state.legalActions(root_node.state.index)
+    #print(root_node.state.deletion)
     actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
     n_list = [0 for _ in range(len(legal_actions))]
     for ind1 in range(actionSize[0]):
         for ind2 in range(actionSize[1]):
             for ind3 in range(actionSize[2]):
                 for ind4 in range(actionSize[3]):
+                    #print(ind1, ind2, ind3, ind4)
                     if root_node.state.index == 0:
                         n_list[ind1] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
                     elif root_node.state.index == 1:
@@ -331,7 +351,6 @@ def reloadPreActions(obs):
 
 def agent(obs, conf):
     global directions
-    
     #TODO delete
     #obs = Observation(obs)
     #conf = Configuration(conf)
@@ -346,3 +365,5 @@ def agent(obs, conf):
 if __name__ == '__main__':
     obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
     agent(obs, " ")
+
+# %%
