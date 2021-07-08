@@ -1,6 +1,10 @@
 #%%writefile submissionMCTS.py
 
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
+import sys
+
+sys.setrecursionlimit(10000)
+
 import random
 import numpy as np
 from collections import defaultdict, deque
@@ -90,7 +94,7 @@ class State:
         #displayBoard(self.board)
         self.copyflag = 1 #cooyflag 高速化
     def checkSegment(self):#step40ごとにsegmentを1削除
-        if self.step != 0 or (self.step + self.count) % 40 == 0:
+        if self.step != 0 and (self.step + self.count) % 40 == 0:
             for ind in range(len(self.geeses)):
                 if self.deletion[ind] == True:
                     continue
@@ -340,6 +344,8 @@ def reloadPreActions(obs):
                 break
 
 def agent(obs, conf):
+    global STARTTIME
+    STARTTIME = time.time()
     global directions
     #TODO delete
     #obs = Observation(obs)

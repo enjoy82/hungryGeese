@@ -1,6 +1,10 @@
 #%%writefile submissionMCTS.py
 
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
+import sys
+
+sys.setrecursionlimit(10000)
+
 import random
 import queue
 import numpy as np
@@ -8,11 +12,6 @@ from collections import defaultdict, deque
 import math
 import time
 import copy
-directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
-try:
-    import cPickle as pickle
-except:
-    import pickle
 
 #######################　hyper params  ############################
 directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1, 0)}
@@ -67,31 +66,47 @@ def playout(state):
     return playout(state.next(actionlist, fromPlayout = True))
 
 class State:
-    def __init__(self, obs):
+    def __init__(self, obs = None, copyflag = False, prestate = None):
         #foodの管理
-        self.foods = obs["food"]
-        self.step = obs["step"]
-        self.count = 0
-        self.index = obs["index"] #自分のgeeseのindex
-        self.deletion = [False, False, False, False]
-        #当たり判定　配列で
-        self.board = [[0 for i in range(11)] for l in range(7)]
-        #geeseの管理、高速化のためdeque top head
-        self.geeses = []
-        for ind, geese in enumerate(obs["geese"]):
-            deq = deque()
-            if len(geese) == 0:
-                self.deletion[ind] = True
-            for s in geese:
-                x, y = get2vec(s)
-                self.board[x][y] = 1
-                deq.append((x,y))
-            self.geeses.append(deq)
-        self.preaction = copy.deepcopy(Globalpreactions)
-        #displayBoard(self.board)
-        self.copyflag = 1 #cooyflag 高速化
+        if copyflag == False:
+            self.foods = obs["food"]
+            self.step = obs["step"]
+            self.count = 0
+            self.index = obs["index"] #自分のgeeseのindex
+            self.deletion = [False, False, False, False]
+            #当たり判定　配列で
+            self.board = [[0 for i in range(11)] for l in range(7)]
+            #geeseの管理、高速化のためdeque top head
+            self.geeses = []
+            for ind, geese in enumerate(obs["geese"]):
+                deq = deque()
+                if len(geese) == 0:
+                    self.deletion[ind] = True
+                for s in geese:
+                    x, y = get2vec(s)
+                    self.board[x][y] = 1
+                    deq.append((x,y))
+                self.geeses.append(deq)
+            self.preaction = Globalpreactions.copy()
+            #displayBoard(self.board)
+            self.copyflag = 1 #cooyflag 高速化
+        else:
+            self.foods = prestate.foods.copy()
+            self.step = prestate.step
+            self.count = prestate.count
+            self.index = prestate.index
+            self.deletion = prestate.deletion.copy()
+            self.board = []
+            for row in prestate.board:
+                self.board.append(row.copy())
+            self.geeses = []
+            for geese in prestate.geeses:
+                self.geeses.append(copy.copy(geese))
+            self.preaction = prestate.preaction.copy()
+            self.copyflag = prestate.copyflag
+
     def checkSegment(self):#step40ごとにsegmentを1削除
-        if self.step != 0 or (self.step + self.count) % 40 == 0:
+        if self.step != 0 and (self.step + self.count) % 40 == 0:
             for ind in range(len(self.geeses)):
                 if self.deletion[ind] == True:
                     continue
@@ -127,7 +142,9 @@ class State:
     def next(self, actions, fromPlayout = False):
         global copycount
         if self.copyflag == 1:
-            statecopy = copy.deepcopy(self)
+            #statecopy = copy.deepcopy(self)
+            statecopy = State(copyflag = True, prestate = self)
+            #statecopy = pickle.loads(pickle.dumps(self, -1))
             copycount += 1
             if fromPlayout == True:
                 statecopy.copyflag = 0
@@ -137,7 +154,7 @@ class State:
             if statecopy.deletion[ind] == True:
                 continue
             if actions[ind] == NOACTION:
-                actions[ind] = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
+                actions[ind] = directdict[direct[np.random.randint(0, 4)]] #ランダム行動
             geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
             ddx, ddy = directdict[actions[ind]]
             statecopy.preaction[ind] = actions[ind]
@@ -285,10 +302,8 @@ def mcts_action(state):
                 ucbTable = [[0, 0] for _ in range(acs)]
                 self.ucbTables.append(ucbTable)
 
-        def next_child_node(self): #ucb1使う actionも返す
-            if not self.next0node.empty():
-                newnode, actionlist = self.next0node.get()
-                return newnode, actionlist
+        def selectActionSet(self):
+            #ucb1を用いたactionを返す
             selectac = [0,0,0,0]
             for ind in range(len(self.ucbTables)):
                 bestac = 0
@@ -301,11 +316,25 @@ def mcts_action(state):
                         bestucb = ucb
                         bestac = ac
                 selectac[ind] = bestac
+            return selectac
+
+        def next_child_node(self): #ucb1使う actionも返す
+            if not self.next0node.empty():
+                newnode, actionlist = self.next0node.get()
+                """
+                print("fromnode")
+                displayBoard(self.state.board)
+                print("nextnode")
+                displayBoard(newnode.state.board)
+                """
+                return newnode, actionlist
+            selectac = self.selectActionSet()
             return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]], selectac
+
     root_node = Node(state)
     root_node.expand()
     c = 0
-    while(time.time() - STARTTIME < 0.95):
+    while(time.time() - STARTTIME < 0.99):
         c += 1
         root_node.evaluate()
     global copycount
@@ -350,13 +379,16 @@ def reloadPreActions(obs):
                 break
 
 def agent(obs, conf):
+    global STARTTIME
+    STARTTIME = time.time()
     global directions
     #TODO delete
     #obs = Observation(obs)
     #conf = Configuration(conf)
     reloadPreActions(obs)
-    print(Globalpregeesehead)
-    state = State(obs)
+    print(obs)
+    #print(Globalpregeesehead)
+    state = State(obs = obs)
     best_action = mcts_action(state)
     print(best_action)
     #print(time.time() - STARTTIME)
