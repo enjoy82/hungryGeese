@@ -154,7 +154,7 @@ class State:
             if statecopy.deletion[ind] == True:
                 continue
             if actions[ind] == NOACTION:
-                actions[ind] = directdict[direct[np.random.randint(0, 4)]] #ランダム行動
+                actions[ind] = direct[np.random.randint(0, 4)] #ランダム行動
             geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
             ddx, ddy = directdict[actions[ind]]
             statecopy.preaction[ind] = actions[ind]
@@ -189,13 +189,10 @@ class State:
             if self.board[nx][ny] != 1 and dir != forbidaction:
                 nextLegalActions.append(dir)
             else:
-                for ind, geese in enumerate(self.geeses): #しっぽは最強手
-                    if self.deletion[ind] == True:
-                        continue
-                    geeseBackx, geeseBacky = geese[-1]
-                    if nx == geeseBackx and ny == geeseBacky and dir != forbidaction:
-                        nextLegalActions.append(dir)
-                        break
+                geese = self.geeses[ind] #しっぽは最強手
+                geeseBackx, geeseBacky = geese[-1]
+                if nx == geeseBackx and ny == geeseBacky and dir != forbidaction:
+                    nextLegalActions.append(dir)
         return nextLegalActions
 
     def randomAction(self, ind):
@@ -358,6 +355,7 @@ def mcts_action(state):
                         n_list[ind3] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
                     elif root_node.state.index == 3:
                         n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+    print(n_list)
     return legal_actions[np.argmax(n_list)]
 
 def reloadPreActions(obs):
@@ -395,7 +393,7 @@ def agent(obs, conf):
     return best_action 
 
 if __name__ == '__main__':
-    obs = {'remainingOverageTime': 60, 'step': 0, 'geese': [[16], [30], [76], [56]], 'food': [24, 38], 'index': 0}
+    obs = {'remainingOverageTime': 60, 'step': 1, 'geese': [[14, 15, 16], [29, 30], [76], [56]], 'food': [24, 38], 'index': 0}
     agent(obs, " ")
 
 # %%

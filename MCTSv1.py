@@ -140,7 +140,7 @@ class State:
             if statecopy.deletion[ind] == True:
                 continue
             if actions[ind] == NOACTION:
-                actions[ind] = directdict[direct[np.random.randint(0, len(4))]] #ランダム行動
+                actions[ind] = direct[np.random.randint(0, len(4))] #ランダム行動
             geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
             ddx, ddy = directdict[actions[ind]]
             statecopy.preaction[ind] = actions[ind]
