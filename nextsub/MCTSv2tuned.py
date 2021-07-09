@@ -2,9 +2,8 @@
 from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import sys
 
-sys.setrecursionlimit(10000000)
+sys.setrecursionlimit(1000000)
 
-import random
 import queue
 import numpy as np
 from collections import defaultdict, deque
@@ -18,9 +17,9 @@ directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
 dx = [0, 0, 1, -1]
 dy = [1, -1, 0, 0]
-READSTEPS = 8 #先読み手数
+READSTEPS = 6 #先読み手数
 NOACTION = "NOACTION"
-EXPANDCOUNT = 30 #ノード展開の数
+EXPANDCOUNT = 50 #ノード展開の数
 #SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
 STARTTIME = time.time()
 ###################################################################
@@ -56,7 +55,7 @@ def oppositeAction(s):
 def playout(state):
     #終了条件
     reward = []
-    if state.count == READSTEPS or state.isLose == True:
+    if state.count == READSTEPS or state.isLose() == True:
         for ind in range(4):
             reward.append(state.getReward(ind))
         return reward
@@ -248,12 +247,14 @@ def mcts_action(state):
         def evaluate(self):
             #ゲーム終了 -> 広げる意味がない TODO 打ち切り条件書く
             if self.state.isLose() == True:
+                #print("Lose")
                 value = []
                 for ind in range(4):
                     value.append(self.state.getReward(ind))
                 self.n += 1
                 return value
             if not self.child_nodes:
+                #print("nonode")
                 value = playout(self.state)
                 """
                 for ind, v in enumerate(value):
@@ -264,6 +265,7 @@ def mcts_action(state):
                     self.expand()
                 return value
             else:
+                #print("node")
                 next_node, actionList = self.next_child_node()
                 value = next_node.evaluate()
                 self.updateUcbtables(value, actionList)
@@ -434,11 +436,11 @@ def agent(obs, conf):
     #print(best_action)
     #print(time.time() - STARTTIME)
     return best_action 
-"""
+
 if __name__ == '__main__':
     for i in range(59, 200):
         obs = {'remainingOverageTime': 48.404224999999975, 'step': i, 'geese': [[39, 38, 37, 26, 15, 16, 17, 28], [68, 67, 66, 76, 75, 74, 63, 62, 51, 52, 53], [], []], 'food': [36, 56], 'index': 0}
         agent(obs, " ")
-"""
+
 
 # %%
