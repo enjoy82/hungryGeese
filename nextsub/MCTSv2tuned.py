@@ -358,9 +358,11 @@ def mcts_action(state):
     #print("selectionnum : ", c)
     #print("copycount : ", copycount)
     #試行回数が最大のものを選ぶ
+    global Globalpreactions
     legal_actions = root_node.state.legalActions(root_node.state.index)
+    #エラー回避 opposite
     if len(legal_actions) == 0:
-        legal_actions = [direct[np.random.randint(0, 4)], direct[np.random.randint(0, 4)], direct[np.random.randint(0, 4)], direct[np.random.randint(0, 4)], direct[np.random.randint(0, 4)]]
+        legal_actions = [Globalpreactions[state.index], Globalpreactions[state.index], Globalpreactions[state.index], Globalpreactions[state.index]]
     #print(root_node.state.deletion)
     actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
     n_list = [0 for _ in range(max(1,len(legal_actions)))]
