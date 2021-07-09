@@ -213,7 +213,7 @@ class State:
                 maxGeeseLen = max(maxGeeseLen, len(geese))
             return len(self.geeses[self.index]) / maxGeeseLen #TODO 正規化する
         else:
-            return -10
+            return -1
 
     def isLose(self): #敗北管理
         #print(self.deletion)
