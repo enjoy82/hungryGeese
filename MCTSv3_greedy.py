@@ -1,9 +1,9 @@
-#%%writefile submissionMCTS.py
+#%%writefile MCTSv3_greedy.py
 
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import sys
 
-sys.setrecursionlimit(10000)
+sys.setrecursionlimit(10000000)
 
 import random
 import queue
@@ -12,15 +12,16 @@ from collections import defaultdict, deque
 import math
 import time
 import copy
+import gc
 
 #######################　hyper params  ############################
 directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1, 0)}
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
 dx = [0, 0, 1, -1]
 dy = [1, -1, 0, 0]
-READSTEPS = 5 #先読み手数
+READSTEPS = 10 #先読み手数
 NOACTION = "NOACTION"
-EXPANDCOUNT = 5 #ノード展開の数
+EXPANDCOUNT = 50 #ノード展開の数
 #SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
 STARTTIME = time.time()
 ###################################################################
@@ -54,8 +55,9 @@ def oppositeAction(s):
     return s
 
 def playout(state):
+    #終了条件
     reward = []
-    if state.count == READSTEPS:
+    if state.count == READSTEPS or state.isLose() == True:
         for ind in range(4):
             reward.append(state.getReward(ind))
         return reward
@@ -64,6 +66,7 @@ def playout(state):
     for ind in range(4):
         actionlist.append(state.randomAction(ind))
     return playout(state.next(actionlist, fromPlayout = True))
+
 
 class State:
     def __init__(self, obs = None, copyflag = False, prestate = None):
@@ -193,7 +196,45 @@ class State:
                 geeseBackx, geeseBacky = geese[-1]
                 if nx == geeseBackx and ny == geeseBacky and dir != forbidaction:
                     nextLegalActions.append(dir)
-        return nextLegalActions
+
+        nextLegalActions2 = []
+        #枝刈り
+        for food in self.foods:
+            foodx, foody = get2vec(food)
+            fooddistance = [1e9, 1e9, 1e9, 1e9]
+            for i in range(4):
+                if self.deletion[i] == True:
+                    continue
+                geeseHeadx2, geeseHeady2 = self.geeses[ind][0]
+                fooddistance[i] = abs(min(geeseHeadx2 - foodx, 7-(geeseHeadx2 - foodx))) + abs(min(geeseHeady2 - foody, 11-(geeseHeady2 - foody)))
+            if np.argmin(fooddistance) == ind:
+                for nextLegalAction in nextLegalActions:
+                    ddx, ddy = directdict[nextLegalAction]
+                    nx, ny = getLegalPos(geeseHeadx + ddx, geeseHeady + ddy)
+                    if fooddistance[ind] > abs(min(nx - foodx, 7-(nx - foodx))) + abs(min(ny - foody, 11-(ny - foody))):
+                        nextLegalActions2.append(nextLegalAction)
+        if len(nextLegalActions2) >= 3:
+            nextLegalActions2 = nextLegalActions2[:2]
+        if len(nextLegalActions2) < 2:
+            legalActionScore = [[nextLegalActions[i], 1e9] for i in range(len(nextLegalActions))]
+            for ind2, nextlegalaction in enumerate(nextLegalActions):
+                if nextlegalaction in nextLegalActions2:
+                    continue
+                ddx, ddy = directdict[nextlegalaction]
+                nx, ny = getLegalPos(geeseHeadx + ddx, geeseHeady + ddy)
+                for i in range(7):
+                    for l in range(11):
+                        if self.board[i][l] == 1:
+                            legalActionScore[ind2][1] = min(legalActionScore[ind2][1], abs(min(nx - i, 7-(nx - i))) + abs(min(ny - l, 11-(ny - l))))
+            sortedlegalActionScore = sorted(legalActionScore, key = lambda x:x[1], reverse=True)
+            for legalAction in sortedlegalActionScore:
+                if legalAction[1] == 1e9:
+                    continue
+                nextLegalActions2.append(legalAction[0])
+                if len(nextLegalActions2) >= 2:
+                    break
+        #print(nextLegalActions2)
+        return nextLegalActions2
 
     def randomAction(self, ind):
         nextLegalActions = self.legalActions(ind)
@@ -328,17 +369,36 @@ def mcts_action(state):
             selectac = self.selectActionSet()
             return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]], selectac
 
+        def delete_node(self):
+            if self.child_nodes == None:
+                del self
+                gc.collect()
+                return
+            actionSize = [len(self.child_nodes), len(self.child_nodes[0]), len(self.child_nodes[0][0]), len(self.child_nodes[0][0][0])]
+            for ind1 in range(actionSize[0]):
+                for ind2 in range(actionSize[1]):
+                    for ind3 in range(actionSize[2]):
+                        for ind4 in range(actionSize[3]):
+                            self.child_nodes[ind1][ind2][ind3][ind4].delete_node()
+            del self
+            gc.collect()
+            return
+        
+
     root_node = Node(state)
     root_node.expand()
+    global copycount
     c = 0
     while(time.time() - STARTTIME < 0.99):
+        #print("copycount : ", copycount)
         c += 1
         root_node.evaluate()
-    global copycount
     print("selectionnum : ", c)
     print("copycount : ", copycount)
     #試行回数が最大のものを選ぶ
     legal_actions = root_node.state.legalActions(root_node.state.index)
+    if len(legal_actions) == 0:
+        legal_actions = [Globalpreactions[state.index], Globalpreactions[state.index], Globalpreactions[state.index], Globalpreactions[state.index]]
     #print(root_node.state.deletion)
     actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
     n_list = [0 for _ in range(len(legal_actions))]
@@ -355,8 +415,13 @@ def mcts_action(state):
                         n_list[ind3] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
                     elif root_node.state.index == 3:
                         n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
-    print(n_list)
+    #print(n_list)
+    #delete_node(root_node)
+    #root_node.delete_node()
+    del root_node
+    gc.collect()
     return legal_actions[np.argmax(n_list)]
+
 
 def reloadPreActions(obs):
     geeses = obs["geese"]
@@ -376,6 +441,8 @@ def reloadPreActions(obs):
                 Globalpreactions[ind] = dir
                 break
 
+
+
 def agent(obs, conf):
     global STARTTIME
     STARTTIME = time.time()
@@ -384,16 +451,19 @@ def agent(obs, conf):
     #obs = Observation(obs)
     #conf = Configuration(conf)
     reloadPreActions(obs)
-    print(obs)
+    #print(obs)
     #print(Globalpregeesehead)
     state = State(obs = obs)
     best_action = mcts_action(state)
-    print(best_action)
+    del state
+    gc.collect()
+    #print(best_action)
     #print(time.time() - STARTTIME)
     return best_action 
 
 if __name__ == '__main__':
-    obs = {'remainingOverageTime': 60, 'step': 1, 'geese': [[14, 15, 16], [29, 30], [76], [56]], 'food': [24, 38], 'index': 0}
+    obs = {'remainingOverageTime': 48.404224999999975, 'step': 0, 'geese': [[5], [35], [55], [65]], 'food': [3, 8], 'index': 0}
     agent(obs, " ")
+
 
 # %%

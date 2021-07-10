@@ -3,7 +3,7 @@
 #from kaggle_environments.envs.hungry_geese.hungry_geese import Observation, Configuration, Action, row_col
 import sys
 
-sys.setrecursionlimit(10000)
+sys.setrecursionlimit(1000000)
 
 import random
 import numpy as np
@@ -11,6 +11,7 @@ from collections import defaultdict, deque
 import math
 import time
 import copy
+import gc
 directions = {0:'EAST', 1:'NORTH', 2:'WEST', 3:'SOUTH', 'EAST':0, 'NORTH':1, 'WEST':2, 'SOUTH':3}
 try:
     import cPickle as pickle
@@ -22,9 +23,9 @@ directdict = {"EAST" : (0, 1), "WEST" : (0, -1), "SOUTH" : (1, 0), "NORTH" : (-1
 direct = ["EAST", "WEST", "SOUTH", "NORTH"]
 dx = [0, 0, 1, -1]
 dy = [1, -1, 0, 0]
-READSTEPS = 5 #先読み手数
+READSTEPS = 8 #先読み手数
 NOACTION = "NOACTION"
-EXPANDCOUNT = 5 #ノード展開の数
+EXPANDCOUNT = 20 #ノード展開の数
 #SIMULATECOUNT = EXPANDCOUNT * 2 #シミュレーション数 使わないでいく
 STARTTIME = time.time()
 ###################################################################
@@ -59,7 +60,7 @@ def oppositeAction(s):
 
 def playout(state):
     reward = []
-    if state.count == READSTEPS:
+    if state.count == READSTEPS or state.isLose == True:
         for ind in range(4):
             reward.append(state.getReward(ind))
         return reward
@@ -140,7 +141,7 @@ class State:
             if statecopy.deletion[ind] == True:
                 continue
             if actions[ind] == NOACTION:
-                actions[ind] = direct[np.random.randint(0, len(4))] #ランダム行動
+                actions[ind] = direct[np.random.randint(0, 4)] #ランダム行動
             geeseHeadx, geeseHeady = statecopy.geeses[ind][0]
             ddx, ddy = directdict[actions[ind]]
             statecopy.preaction[ind] = actions[ind]
@@ -296,6 +297,20 @@ def mcts_action(state):
                         bestac = ac
                 selectac[ind] = bestac
             return self.child_nodes[selectac[0]][selectac[1]][selectac[2]][selectac[3]]
+
+        def delete_node(self):
+            if self.child_nodes == None:
+                del self
+                return
+            actionSize = [len(self.child_nodes), len(self.child_nodes[0]), len(self.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
+            for ind1 in range(actionSize[0]):
+                for ind2 in range(actionSize[1]):
+                    for ind3 in range(actionSize[2]):
+                        for ind4 in range(actionSize[3]):
+                            self.child_nodes[ind1][ind2][ind3][ind4].delete_node
+            del self
+            return
+
     root_node = Node(state)
     root_node.expand()
     c = 0
@@ -309,7 +324,7 @@ def mcts_action(state):
     legal_actions = root_node.state.legalActions(root_node.state.index)
     #print(root_node.state.deletion)
     actionSize = [len(root_node.child_nodes), len(root_node.child_nodes[0]), len(root_node.child_nodes[0][0]), len(root_node.child_nodes[0][0][0])]
-    n_list = [0 for _ in range(len(legal_actions))]
+    n_list = [0 for _ in range(max(1, len(legal_actions)))]
     for ind1 in range(actionSize[0]):
         for ind2 in range(actionSize[1]):
             for ind3 in range(actionSize[2]):
@@ -323,7 +338,13 @@ def mcts_action(state):
                         n_list[ind3] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
                     elif root_node.state.index == 3:
                         n_list[ind4] += root_node.child_nodes[ind1][ind2][ind3][ind4].n
+    root_node.delete_node()
+    del root_node
+    gc.collect()
+    #print(type(root_node))
     return legal_actions[np.argmax(n_list)]
+
+
 
 def reloadPreActions(obs):
     geeses = obs["geese"]
